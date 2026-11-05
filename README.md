@@ -16,7 +16,7 @@ El proyecto consiste en una maqueta de tanque sobre ruedas, con estructura impre
 | Control | Función |
 | --- | --- |
 | Palanca analógica | Avanza, retrocede y gira. La inclinación regula la velocidad. |
-| Botón de luces | Invierte el estado de los faros y activa el control manual durante dos minutos. Cada pulsación reinicia ese tiempo. |
+| Botón de luces | Pasa de estado desplazamiento a torreta. Cada pulsación reinicia ese tiempo. |
 | Botón de disparo | Emite un destello y descuenta una unidad de munición por pulsación válida. |
 | Botón de recarga | Inicia una recarga de 30 segundos, incluso si queda munición. |
 | Botón de torreta | Mientras se mantiene presionado, la palanca controla la torreta. |
