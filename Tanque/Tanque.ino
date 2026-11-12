@@ -1,3 +1,4 @@
+
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -65,18 +66,24 @@ void controlarIzquierdo(int velocidad) {
   if (velocidad < -255) velocidad = -255;
 
   if (velocidad > 0) {
+
     digitalWrite(IN1, HIGH);
     digitalWrite(IN2, LOW);
+
   }
 
   else if (velocidad < 0) {
+
     digitalWrite(IN1, LOW);
     digitalWrite(IN2, HIGH);
+
   }
 
   else {
+
     digitalWrite(IN1, LOW);
     digitalWrite(IN2, LOW);
+
   }
 
   analogWrite(ENA, abs(velocidad));
@@ -89,18 +96,24 @@ void controlarDerecho(int velocidad) {
   if (velocidad < -255) velocidad = -255;
 
   if (velocidad > 0) {
+
     digitalWrite(IN3, HIGH);
     digitalWrite(IN4, LOW);
+
   }
 
   else if (velocidad < 0) {
+
     digitalWrite(IN3, LOW);
     digitalWrite(IN4, HIGH);
+
   }
 
   else {
+
     digitalWrite(IN3, LOW);
     digitalWrite(IN4, LOW);
+
   }
 
   analogWrite(ENB, abs(velocidad));
@@ -129,10 +142,12 @@ void setup() {
   analogWrite(ENA, 0);
   analogWrite(ENB, 0);
 
+  // Iniciar WiFi
   WiFi.mode(WIFI_STA);
 
   esp_wifi_set_channel(CANAL, WIFI_SECOND_CHAN_NONE);
 
+  // Iniciar ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error al iniciar ESP-NOW");
     return;
@@ -140,7 +155,7 @@ void setup() {
 
   esp_now_register_recv_cb(recibirDatos);
 
-  Serial.println("TANQUE V3 LISTO");
+  Serial.println("TANQUE V4 LISTO");
 }
 
 void loop() {
