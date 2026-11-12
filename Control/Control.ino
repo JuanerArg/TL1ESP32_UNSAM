@@ -1,4 +1,3 @@
-
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -7,6 +6,7 @@
 #define JOY_X 32
 #define JOY_Y 33
 #define BOTON_BOCINA 26
+#define BOTON_DISPARO 27
 
 // Centro del joystick
 #define CENTRO_X 1892
@@ -29,6 +29,7 @@ struct Datos {
   int16_t motorIzquierdo;
   int16_t motorDerecho;
   uint8_t bocina;
+  uint8_t disparo;
 };
 
 Datos datos;
@@ -54,6 +55,7 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(BOTON_BOCINA, INPUT_PULLUP);
+  pinMode(BOTON_DISPARO, INPUT_PULLUP);
 
   analogReadResolution(12);
 
@@ -79,7 +81,7 @@ void setup() {
     return;
   }
 
-  Serial.println("CONTROL V2 LISTO");
+  Serial.println("CONTROL V3 LISTO");
 }
 
 void loop() {
@@ -113,6 +115,13 @@ void loop() {
     datos.bocina = 0;
   }
 
+  // Leer boton de disparo
+  if (digitalRead(BOTON_DISPARO) == LOW) {
+    datos.disparo = 1;
+  } else {
+    datos.disparo = 0;
+  }
+
   // Enviar datos cada 20 milisegundos
   static unsigned long tiempoAnterior = 0;
 
@@ -139,7 +148,10 @@ void loop() {
     Serial.print(datos.motorDerecho);
 
     Serial.print(" | Bocina: ");
-    Serial.println(datos.bocina);
+    Serial.print(datos.bocina);
+
+    Serial.print(" | Disparo: ");
+    Serial.println(datos.disparo);
 
     tiempoSerial = millis();
   }
