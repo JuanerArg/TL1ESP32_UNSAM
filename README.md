@@ -25,7 +25,7 @@ El repositorio contiene el firmware del mando y del tanque, desarrollado de mane
 | Envío de mediciones del radar por ESP-NOW | Implementado |
 | Visualización de mediciones en el OLED | Implementada |
 | Diagnóstico por Monitor Serie | Implementado parcialmente; se amplía en V7 |
-| Torreta móvil | Pendiente de integrar |
+| Torreta móvil | Semi-Integrado (Solo X) |
 | Display de siete segmentos | Pendiente de integrar |
 | Faros y sensor de iluminación | Pendientes de integrar |
 
