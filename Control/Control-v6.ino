@@ -1,4 +1,3 @@
-
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -7,15 +6,15 @@
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <math.h>
-#include <string.h>
 
-// =====================================
-// PANTALLAS
-// =====================================
+// ==================================================
+// COMPONENTES
+// ==================================================
 
+// LCD 16x2
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+// OLED 128x64
 #define ANCHO 128
 #define ALTO 64
 #define OLED_RESET -1
@@ -23,41 +22,65 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 Adafruit_SSD1306 oled(ANCHO, ALTO, &Wire, OLED_RESET);
 
-// =====================================
-// JOYSTICK
-// =====================================
+bool oledDisponible = false;
+bool radarActivo = false;
 
+// ==================================================
+// JOYSTICKS
+// ==================================================
+
+// Joystick principal
 #define JOY_X 32
 #define JOY_Y 33
 
-const int CENTRO_X = 1892;
-const int CENTRO_Y = 1892;
-const int ZONA_MUERTA = 100;
+// Joystick de la torreta
+#define JOY_TORRETA_X 34
 
-// =====================================
+// Calibracion
+#define CENTRO_X 1892
+#define CENTRO_Y 1892
+#define CENTRO_TORRETA 1892
+
+#define ZONA_MUERTA 100
+
+// ==================================================
 // BOTONES
-// =====================================
+// ==================================================
 
-#define BOTON_BUZZER 26
+#define BOTON_BOCINA 26
 #define BOTON_DISPARO 27
 #define BOTON_RECARGA 14
 #define BOTON_RADAR 25
 
-// =====================================
-// ESP-NOW
-// =====================================
+// ==================================================
+// MUNICION
+// ==================================================
 
-uint8_t direccionTanque[] = {
-  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+#define MUNICION_MAXIMA 10
+
+int municion = MUNICION_MAXIMA;
+
+// ==================================================
+// COMUNICACION ESP-NOW
+// ==================================================
+
+#define CANAL 1
+
+uint8_t destino[] = {
+  0xFF, 0xFF, 0xFF,
+  0xFF, 0xFF, 0xFF
 };
 
-struct Datos {
+// Datos enviados al tanque
+struct __attribute__((packed)) Datos {
   int16_t motorIzquierdo;
   int16_t motorDerecho;
   uint8_t bocina;
   uint8_t disparo;
+  int16_t velocidadTorreta;
 };
 
+// Datos recibidos del radar
 struct __attribute__((packed)) DatosRadar {
   uint8_t tipo;
   int16_t angulo;
@@ -68,105 +91,355 @@ struct __attribute__((packed)) DatosRadar {
 
 Datos datos;
 
-// =====================================
-// MUNICION
-// =====================================
-
-int municion = 10;
-
-bool disparoPermitido = false;
-bool disparoAnterior = HIGH;
-bool estadoDisparo = HIGH;
-
-bool recargaAnterior = HIGH;
-bool radarAnterior = HIGH;
-
-bool radarActivo = false;
-
-// =====================================
-// TIEMPOS
-// =====================================
-
-unsigned long tiempoDisparo = 0;
-unsigned long tiempoRecarga = 0;
-unsigned long tiempoBotonRadar = 0;
-
-unsigned long tiempoLCD = 0;
-unsigned long tiempoOLED = 0;
-unsigned long ultimoEnvio = 0;
-
-// =====================================
+// ==================================================
 // DATOS DEL RADAR
-// =====================================
+// ==================================================
 
 volatile uint16_t distancias[181] = {};
 volatile bool lecturasValidas[181] = {};
 
 volatile int anguloRadar = 0;
+volatile uint16_t ultimaDistancia = 0xFFFF;
 
-// =====================================
-// RECIBIR MEDICIONES DEL TANQUE
-// =====================================
+// ==================================================
+// ESTADOS DE LOS BOTONES
+// ==================================================
+
+// Disparo
+bool estadoDisparo = HIGH;
+bool ultimaLecturaDisparo = HIGH;
+unsigned long cambioDisparo = 0;
+
+// Recarga
+bool estadoRecarga = HIGH;
+bool ultimaLecturaRecarga = HIGH;
+unsigned long cambioRecarga = 0;
+
+// Radar
+bool estadoRadar = HIGH;
+bool ultimaLecturaRadar = HIGH;
+unsigned long cambioRadar = 0;
+
+// ==================================================
+// RECEPCION DE DATOS DEL RADAR
+// ==================================================
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
 
-void recibirDatos(const esp_now_recv_info_t *info,
-                  const uint8_t *datosRecibidos, int longitud) {
+void recibirRadar(
+  const esp_now_recv_info_t *info,
+  const uint8_t *datosRecibidos,
+  int longitud
+) {
 
 #else
 
-void recibirDatos(const uint8_t *mac,
-                  const uint8_t *datosRecibidos, int longitud) {
+void recibirRadar(
+  const uint8_t *mac,
+  const uint8_t *datosRecibidos,
+  int longitud
+) {
 
 #endif
 
-  if (longitud == sizeof(DatosRadar)) {
+  if (longitud != sizeof(DatosRadar)) {
+    return;
+  }
 
-    DatosRadar medicion;
+  DatosRadar recibido;
 
-    memcpy(&medicion, datosRecibidos, sizeof(medicion));
+  memcpy(
+    &recibido,
+    datosRecibidos,
+    sizeof(DatosRadar)
+  );
 
-    if (medicion.tipo == TIPO_RADAR) {
+  if (recibido.tipo != TIPO_RADAR) {
+    return;
+  }
 
-      if (medicion.angulo >= 0 && medicion.angulo <= 180) {
+  int angulo = constrain(recibido.angulo, 0, 180);
 
-        anguloRadar = medicion.angulo;
+  anguloRadar = angulo;
+  ultimaDistancia = recibido.distancia;
 
-        if (medicion.distancia != 0xFFFF) {
+  if (recibido.distancia == 0xFFFF) {
 
-          distancias[medicion.angulo] = medicion.distancia;
-          lecturasValidas[medicion.angulo] = true;
-        }
-        else {
-          lecturasValidas[medicion.angulo] = false;
-        }
-      }
+    lecturasValidas[angulo] = false;
+
+  } else {
+
+    distancias[angulo] = recibido.distancia;
+    lecturasValidas[angulo] = true;
+  }
+}
+
+// ==================================================
+// DETECCION DE PULSACIONES CON ANTIRREBOTE
+// ==================================================
+
+bool detectarPulsacion(
+  int pin,
+  bool &estadoEstable,
+  bool &ultimaLectura,
+  unsigned long &ultimoCambio
+) {
+
+  bool lectura = digitalRead(pin);
+
+  if (lectura != ultimaLectura) {
+    ultimaLectura = lectura;
+    ultimoCambio = millis();
+  }
+
+  if (
+    millis() - ultimoCambio > 25 &&
+    lectura != estadoEstable
+  ) {
+
+    estadoEstable = lectura;
+
+    if (estadoEstable == LOW) {
+      return true;
     }
   }
+
+  return false;
 }
 
-// =====================================
-// LEER JOYSTICK
-// =====================================
+// ==================================================
+// CONVERTIR JOYSTICK EN VELOCIDAD
+// ==================================================
 
-int leerEje(int valor, int centro) {
+int leerEje(int lectura, int centro) {
 
-  int salida = map(valor, 0, 4095, -255, 255);
-
-  if (abs(valor - centro) < ZONA_MUERTA) {
-    salida = 0;
+  if (abs(lectura - centro) <= ZONA_MUERTA) {
+    return 0;
   }
 
-  salida = constrain(salida, -255, 255);
+  int velocidad;
 
-  return salida;
+  if (lectura > centro) {
+
+    velocidad = map(
+      lectura,
+      centro,
+      4095,
+      0,
+      255
+    );
+
+  } else {
+
+    velocidad = map(
+      lectura,
+      0,
+      centro,
+      -255,
+      0
+    );
+  }
+
+  return constrain(velocidad, -255, 255);
 }
 
-// =====================================
-// ACTUALIZAR MOVIMIENTO
-// =====================================
+// ==================================================
+// ACTUALIZAR LCD
+// ==================================================
 
-void actualizarMovimiento() {
+void actualizarLCD() {
+
+  lcd.setCursor(0, 0);
+
+  lcd.print("MUNICION: ");
+  lcd.print(municion);
+  lcd.print("/10      ");
+
+  lcd.setCursor(0, 1);
+
+  if (municion > 0) {
+    lcd.print("ESTADO: LISTO   ");
+  } else {
+    lcd.print("SIN MUNICION    ");
+  }
+}
+
+// ==================================================
+// DIBUJAR RADAR OLED
+// ==================================================
+
+void actualizarRadar() {
+
+  oled.clearDisplay();
+
+  if (!radarActivo) {
+
+    oled.setTextSize(1);
+
+    oled.setCursor(25, 20);
+    oled.print("RADAR");
+
+    oled.setCursor(25, 35);
+    oled.print("PAUSADO");
+
+    oled.display();
+
+    return;
+  }
+
+  int cx = 64;
+  int cy = 63;
+  int radio = 51;
+
+  // Informacion superior
+  oled.setTextSize(1);
+  oled.setCursor(0, 0);
+
+  oled.print("A:");
+  oled.print(anguloRadar);
+
+  oled.print(" D:");
+
+  if (ultimaDistancia == 0xFFFF) {
+    oled.print("--");
+  } else {
+    oled.print(ultimaDistancia / 10);
+  }
+
+  oled.print("cm");
+
+  // Circulos
+  oled.drawCircle(cx, cy, radio, SSD1306_WHITE);
+  oled.drawCircle(cx, cy, 34, SSD1306_WHITE);
+  oled.drawCircle(cx, cy, 17, SSD1306_WHITE);
+
+  // Lineas de referencia
+  oled.drawLine(cx, cy, cx, cy - radio, SSD1306_WHITE);
+  oled.drawLine(cx, cy, 13, cy, SSD1306_WHITE);
+  oled.drawLine(cx, cy, 115, cy, SSD1306_WHITE);
+
+  // Obstaculos
+  for (int a = 0; a <= 180; a++) {
+
+    if (!lecturasValidas[a]) {
+      continue;
+    }
+
+    float distanciaCm = distancias[a] / 10.0;
+
+    float distanciaLimitada = constrain(
+      distanciaCm,
+      0,
+      200
+    );
+
+    int r = (int)(
+      distanciaLimitada * radio / 200.0
+    );
+
+    float rad = a * PI / 180.0;
+
+    int x = cx + r * cos(rad);
+    int y = cy - r * sin(rad);
+
+    oled.fillCircle(x, y, 2, SSD1306_WHITE);
+  }
+
+  // Linea de barrido
+  float rad = anguloRadar * PI / 180.0;
+
+  int x = cx + radio * cos(rad);
+  int y = cy - radio * sin(rad);
+
+  oled.drawLine(cx, cy, x, y, SSD1306_WHITE);
+
+  oled.display();
+}
+
+// ==================================================
+// SETUP
+// ==================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // Botones
+  pinMode(BOTON_BOCINA, INPUT_PULLUP);
+  pinMode(BOTON_DISPARO, INPUT_PULLUP);
+  pinMode(BOTON_RECARGA, INPUT_PULLUP);
+  pinMode(BOTON_RADAR, INPUT_PULLUP);
+
+  analogReadResolution(12);
+
+  // I2C
+  Wire.begin(21, 22);
+
+  // LCD
+  lcd.init();
+  lcd.backlight();
+
+  actualizarLCD();
+
+  // OLED
+  if (oled.begin(
+    SSD1306_SWITCHCAPVCC,
+    OLED_ADDRESS
+  )) {
+
+    oledDisponible = true;
+
+    actualizarRadar();
+
+    Serial.println("OLED iniciado correctamente");
+
+  } else {
+
+    Serial.println("Error iniciando OLED");
+  }
+
+  // ESP-NOW
+  WiFi.mode(WIFI_STA);
+
+  esp_wifi_set_channel(
+    CANAL,
+    WIFI_SECOND_CHAN_NONE
+  );
+
+  if (esp_now_init() != ESP_OK) {
+
+    Serial.println("Error iniciando ESP-NOW");
+    return;
+  }
+
+  esp_now_register_recv_cb(recibirRadar);
+
+  // Dispositivo broadcast
+  esp_now_peer_info_t peer = {};
+
+  memcpy(peer.peer_addr, destino, 6);
+
+  peer.channel = CANAL;
+  peer.encrypt = false;
+
+  if (esp_now_add_peer(&peer) != ESP_OK) {
+
+    Serial.println("Error agregando receptor");
+    return;
+  }
+
+  Serial.println("MANDO V7 LISTO");
+}
+
+// ==================================================
+// LOOP PRINCIPAL
+// ==================================================
+
+void loop() {
+
+  // ----------------------------------------------
+  // LEER JOYSTICK PRINCIPAL
+  // ----------------------------------------------
 
   int x = analogRead(JOY_X);
   int y = analogRead(JOY_Y);
@@ -174,289 +447,168 @@ void actualizarMovimiento() {
   int giro = leerEje(x, CENTRO_X);
   int avance = -leerEje(y, CENTRO_Y);
 
-  datos.motorIzquierdo = avance + giro;
-  datos.motorDerecho = avance - giro;
+  // Mezcla diferencial
+  int izquierdo = avance + giro;
+  int derecho = avance - giro;
 
-  datos.motorIzquierdo = constrain(datos.motorIzquierdo, -255, 255);
-  datos.motorDerecho = constrain(datos.motorDerecho, -255, 255);
-}
+  int maximo = max(
+    abs(izquierdo),
+    abs(derecho)
+  );
 
-// =====================================
-// ACTUALIZAR BOTONES
-// =====================================
+  if (maximo > 255) {
 
-void actualizarBotones() {
-
-  bool bocina = digitalRead(BOTON_BUZZER) == LOW;
-  int lecturaDisparo = digitalRead(BOTON_DISPARO);
-  int lecturaRecarga = digitalRead(BOTON_RECARGA);
-  bool lecturaRadar = digitalRead(BOTON_RADAR) == LOW;
-
-  datos.bocina = bocina;
-
-  // DISPARO
-
-  if (lecturaDisparo != disparoAnterior) {
-
-    tiempoDisparo = millis();
-    disparoAnterior = lecturaDisparo;
+    izquierdo = izquierdo * 255 / maximo;
+    derecho = derecho * 255 / maximo;
   }
 
-  if (millis() - tiempoDisparo >= 25) {
-
-    if (lecturaDisparo != estadoDisparo) {
-
-      estadoDisparo = lecturaDisparo;
-
-      if (estadoDisparo == LOW) {
-
-        if (municion > 0) {
-          municion--;
-          disparoPermitido = true;
-        }
-        else {
-          disparoPermitido = false;
-        }
-      }
-      else {
-        disparoPermitido = false;
-      }
-    }
-  }
-
-  datos.disparo = (estadoDisparo == LOW && disparoPermitido);
-
-  // RECARGA
-
-  if (lecturaRecarga != recargaAnterior) {
-
-    tiempoRecarga = millis();
-    recargaAnterior = lecturaRecarga;
-  }
-
-  static int estadoRecarga = HIGH;
-
-  if (millis() - tiempoRecarga >= 25) {
-
-    if (lecturaRecarga != estadoRecarga) {
-
-      estadoRecarga = lecturaRecarga;
-
-      if (estadoRecarga == LOW) {
-        municion = 10;
-      }
-    }
-  }
-
-  // RADAR
-
-  if (lecturaRadar && !radarAnterior) {
-
-    if (millis() - tiempoBotonRadar >= 200) {
-
-      radarActivo = !radarActivo;
-      tiempoBotonRadar = millis();
-    }
-  }
-
-  radarAnterior = lecturaRadar;
-}
-
-// =====================================
-// ACTUALIZAR LCD
-// =====================================
-
-void actualizarLCD() {
-
-  if (millis() - tiempoLCD >= 200) {
-
-    tiempoLCD = millis();
-
-    lcd.setCursor(0, 0);
-    lcd.print("MUNICION: ");
-    lcd.print(municion);
-    lcd.print("/10   ");
-
-    lcd.setCursor(0, 1);
-
-    if (municion > 0) {
-      lcd.print("ESTADO: LISTO   ");
-    }
-    else {
-      lcd.print("SIN MUNICION    ");
-    }
-  }
-}
-
-// =====================================
-// DIBUJAR RADAR EN OLED
-// =====================================
-
-void dibujarRadar() {
-
-  oled.clearDisplay();
-  oled.setTextColor(SSD1306_WHITE);
-
-  if (!radarActivo) {
-
-    oled.setTextSize(1);
-    oled.setCursor(25, 25);
-    oled.println("RADAR PAUSADO");
-
-    oled.display();
-    return;
-  }
-
-  int centroX = 64;
-  int centroY = 61;
-  int radioMaximo = 55;
-
-  // ARCOS
-
-  for (int radio = 15; radio <= 55; radio += 20) {
-
-    for (int angulo = 0; angulo <= 180; angulo++) {
-
-      float radianes = angulo * PI / 180.0;
-
-      int x = centroX + radio * cos(radianes);
-      int y = centroY - radio * sin(radianes);
-
-      oled.drawPixel(x, y, SSD1306_WHITE);
-    }
-  }
-
-  // LINEAS
-
-  for (int angulo = 0; angulo <= 180; angulo += 30) {
-
-    float radianes = angulo * PI / 180.0;
-
-    int x = centroX + radioMaximo * cos(radianes);
-    int y = centroY - radioMaximo * sin(radianes);
-
-    oled.drawLine(centroX, centroY, x, y, SSD1306_WHITE);
-  }
-
-  // OBJETOS DETECTADOS
-
-  for (int i = 0; i <= 180; i++) {
-
-    if (lecturasValidas[i]) {
-
-      float distancia = distancias[i] / 10.0;
-
-      if (distancia <= 200) {
-
-        int radio = map(distancia, 0, 200, 0, radioMaximo);
-
-        float radianes = i * PI / 180.0;
-
-        int x = centroX + radio * cos(radianes);
-        int y = centroY - radio * sin(radianes);
-
-        oled.fillCircle(x, y, 2, SSD1306_WHITE);
-      }
-    }
-  }
-
-  // POSICION ACTUAL DEL SENSOR
-
-  float radianes = anguloRadar * PI / 180.0;
-
-  int x = centroX + radioMaximo * cos(radianes);
-  int y = centroY - radioMaximo * sin(radianes);
-
-  oled.drawLine(centroX, centroY, x, y, SSD1306_WHITE);
-
-  oled.display();
-}
-
-// =====================================
-// SETUP
-// =====================================
-
-void setup() {
-
-  Serial.begin(115200);
-
-  pinMode(BOTON_BUZZER, INPUT_PULLUP);
-  pinMode(BOTON_DISPARO, INPUT_PULLUP);
-  pinMode(BOTON_RECARGA, INPUT_PULLUP);
-  pinMode(BOTON_RADAR, INPUT_PULLUP);
-
-  analogReadResolution(12);
-
-  Wire.begin(21, 22);
-
-  lcd.init();
-  lcd.backlight();
-
-  if (!oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
-    Serial.println("Error al iniciar OLED");
-  }
-
-  lcd.setCursor(0, 0);
-  lcd.print("CONTROL V6");
-  lcd.setCursor(0, 1);
-  lcd.print("Iniciando...");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-
-  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
-
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error al iniciar ESP-NOW");
-    return;
-  }
-
-  esp_now_register_recv_cb(recibirDatos);
-
-  esp_now_peer_info_t peerInfo = {};
-
-  memcpy(peerInfo.peer_addr, direccionTanque, 6);
-  peerInfo.channel = 1;
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Error al agregar TANQUE");
-    return;
-  }
-
-  Serial.println("CONTROL V6 LISTO");
-}
-
-// =====================================
-// LOOP
-// =====================================
-
-void loop() {
-
-  actualizarMovimiento();
-  actualizarBotones();
-
-  // ENVIAR CONTROLES CADA 20 MS
-
-  if (millis() - ultimoEnvio >= 20) {
-
-    ultimoEnvio = millis();
-
-    esp_now_send(
-      direccionTanque,
-      (uint8_t *)&datos,
-      sizeof(datos)
+  // ----------------------------------------------
+  // LEER JOYSTICK DE LA TORRETA
+  // ----------------------------------------------
+
+  int lecturaTorreta = analogRead(JOY_TORRETA_X);
+
+  int velocidadTorreta = leerEje(
+    lecturaTorreta,
+    CENTRO_TORRETA
+  );
+
+  // ----------------------------------------------
+  // LEER BOTONES
+  // ----------------------------------------------
+
+  bool pulsacionDisparo = detectarPulsacion(
+    BOTON_DISPARO,
+    estadoDisparo,
+    ultimaLecturaDisparo,
+    cambioDisparo
+  );
+
+  bool pulsacionRecarga = detectarPulsacion(
+    BOTON_RECARGA,
+    estadoRecarga,
+    ultimaLecturaRecarga,
+    cambioRecarga
+  );
+
+  bool pulsacionRadar = detectarPulsacion(
+    BOTON_RADAR,
+    estadoRadar,
+    ultimaLecturaRadar,
+    cambioRadar
+  );
+
+  // ----------------------------------------------
+  // ACTIVAR / DESACTIVAR RADAR
+  // ----------------------------------------------
+
+  if (pulsacionRadar && oledDisponible) {
+
+    radarActivo = !radarActivo;
+
+    actualizarRadar();
+
+    Serial.println(
+      radarActivo
+        ? "RADAR ACTIVADO"
+        : "RADAR PAUSADO"
     );
   }
 
-  actualizarLCD();
+  // ----------------------------------------------
+  // MUNICION Y RECARGA
+  // ----------------------------------------------
 
-  // ACTUALIZAR OLED CADA 100 MS
+  if (pulsacionRecarga) {
 
-  if (millis() - tiempoOLED >= 100) {
+    municion = MUNICION_MAXIMA;
 
-    tiempoOLED = millis();
+    actualizarLCD();
 
-    dibujarRadar();
+    Serial.println("MUNICION RECARGADA");
+
+  }
+  else if (pulsacionDisparo && municion > 0) {
+
+    municion--;
+
+    actualizarLCD();
+
+    Serial.println("DISPARO");
+  }
+
+  // ----------------------------------------------
+  // PREPARAR DATOS PARA EL TANQUE
+  // ----------------------------------------------
+
+  datos.motorIzquierdo = izquierdo;
+  datos.motorDerecho = derecho;
+
+  datos.bocina = (
+    digitalRead(BOTON_BOCINA) == LOW
+  ) ? 1 : 0;
+
+  datos.disparo = (
+    digitalRead(BOTON_DISPARO) == LOW &&
+    municion > 0
+  ) ? 1 : 0;
+
+  datos.velocidadTorreta = velocidadTorreta;
+
+  // ----------------------------------------------
+  // ENVIAR CONTROL CADA 20 MS
+  // ----------------------------------------------
+
+  static unsigned long ultimoEnvio = 0;
+
+  if (millis() - ultimoEnvio >= 20) {
+
+    esp_now_send(
+      destino,
+      (uint8_t *)&datos,
+      sizeof(datos)
+    );
+
+    ultimoEnvio = millis();
+  }
+
+  // ----------------------------------------------
+  // ACTUALIZAR OLED
+  // ----------------------------------------------
+
+  static unsigned long anteriorRadar = 0;
+
+  if (
+    oledDisponible &&
+    radarActivo &&
+    millis() - anteriorRadar >= 200
+  ) {
+
+    actualizarRadar();
+
+    anteriorRadar = millis();
+  }
+
+  // ----------------------------------------------
+  // MONITOR SERIE
+  // ----------------------------------------------
+
+  static unsigned long anterior = 0;
+
+  if (millis() - anterior >= 300) {
+
+    Serial.print("Municion: ");
+    Serial.print(municion);
+
+    Serial.print(" | Motor izq: ");
+    Serial.print(izquierdo);
+
+    Serial.print(" | Motor der: ");
+    Serial.print(derecho);
+
+    Serial.print(" | Torreta: ");
+    Serial.println(velocidadTorreta);
+
+    anterior = millis();
   }
 }
