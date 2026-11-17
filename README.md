@@ -17,15 +17,15 @@ El repositorio contiene el firmware del mando y del tanque, desarrollado de mane
 | Comunicación ESP-NOW | Implementada, en el canal 1 |
 | Bocina | Implementada |
 | Disparo mediante LED | Implementado |
-| Recarga y gestión de munición | Implementadas parcialmente |
+| Recarga y gestión de munición | Implementadas |
 | Pantalla LCD 16×2 | Integrada en el mando |
 | Pantalla OLED SSD1306 | Integrada para visualizar el radar |
 | Sensor ultrasónico HC-SR04 | Integrado en el tanque |
 | Motor paso a paso 28BYJ-48 | Integrado para mover el sensor del radar |
 | Envío de mediciones del radar por ESP-NOW | Implementado |
 | Visualización de mediciones en el OLED | Implementada |
-| Diagnóstico por Monitor Serie | Implementado parcialmente; se amplía en V7 |
-| Torreta móvil | Semi-Integrado (Solo X) |
+| Diagnóstico por Monitor Serie | Implementado |
+| Torreta móvil | Semi-Integrado (Solo eje X) |
 | Display de siete segmentos | Pendiente de integrar |
 | Faros y sensor de iluminación | Pendientes de integrar |
 
@@ -42,14 +42,15 @@ El mando utiliza un ESP32 clásico, un joystick analógico de dos ejes y botones
 
 | Control | Pin del ESP32 | Función |
 |---|---|---|
-| Eje horizontal del joystick (VRX) | GPIO32 | Regula el giro |
-| Eje vertical del joystick (VRY) | GPIO33 | Regula el avance y retroceso |
+| Joystick principal – Eje horizontal (VRX) | GPIO32 | Regula el giro del tanque |
+| Joystick principal – Eje vertical (VRY) | GPIO33 | Regula el avance y retroceso |
+| Joystick de torreta – Eje horizontal (VRX) | GPIO34 | Controla el giro de la torreta hacia la izquierda y derecha |
 | Botón de disparo | GPIO27 | Solicita un disparo |
 | Botón de recarga | GPIO14 | Solicita una recarga |
 | Botón de bocina | GPIO26 | Activa la bocina mientras se mantiene presionado |
 | Botón de radar | GPIO25 | Activa o pausa la visualización del radar |
 
-El joystick se alimenta con 3,3 V. Los centros de los ejes se encuentran configurados aproximadamente en 1888 unidades, con una zona muerta de 100 unidades hacia cada lado. Estos valores pueden necesitar calibración según el joystick utilizado.
+El joystick se alimenta con 3,3 V. Los centros de los ejes se encuentran configurados aproximadamente en 1892 unidades, con una zona muerta de 100 unidades hacia cada lado. Estos valores pueden necesitar calibración según el joystick utilizado.
 
 El mando también incorpora dos pantallas mediante comunicación I2C:
 
@@ -62,8 +63,8 @@ Ambas utilizan SDA en GPIO21 y SCL en GPIO22.
 
 | Parte | Componentes utilizados |
 |---|---|
-| Mando | ESP32 clásico, joystick analógico de dos ejes, botones, LCD 16×2 y OLED SSD1306 |
-| Tanque | ESP32 clásico, controlador L298N, dos motores de corriente continua, bocina, LED de disparo, sensor HC-SR04 y motor paso a paso 28BYJ-48 con controlador ULN2003 |
+| Mando | ESP32 clásico, dos joysticks analógicos, botones, LCD 16×2 y OLED SSD1306 |
+| Tanque | ESP32 clásico, controlador L298N, dos motores de corriente continua, bocina, LED de disparo, sensor HC-SR04, motor paso a paso 28BYJ-48 con controlador ULN2003 y servomotor SG90 modificado para rotación continua (torreta) |
 
 Para completar la maqueta se prevén una estructura impresa en 3D, una torreta móvil, faros, un sensor de iluminación y un display de siete segmentos.
 
@@ -202,7 +203,6 @@ Los mensajes de diagnóstico se pueden consultar desde el Monitor Serie de Ardui
 |---|---|
 | `Control/Control.ino` | Firmware del mando |
 | `Tanque/Tanque.ino` | Firmware del tanque |
-| `control.c` | Implementación anterior del control, con otra distribución de botones y otro formato de mensaje |
 | `CHANGELOG.md` | Historial de cambios del proyecto |
 
 Los archivos actuales del mando y del tanque deben utilizar formatos de comunicación compatibles. No se deben combinar versiones antiguas de un programa con versiones nuevas del otro sin comprobar sus estructuras de datos y el canal de radio.
@@ -220,18 +220,14 @@ Los archivos actuales del mando y del tanque deben utilizar formatos de comunica
 9. Abrir los monitores serie a 115200 baudios.
 10. Probar los controles, los motores, la bocina, el disparo y el radar.
 
-El código contempla diferencias entre versiones de Arduino-ESP32 2.x y 3.x para algunas funciones de ESP-NOW y PWM. La compatibilidad definitiva debe comprobarse durante la compilación y carga en las placas utilizadas.
-
-Para las pruebas de simulación, ambos ESP32 deben estar incluidos en el mismo circuito y la plataforma debe admitir la comunicación inalámbrica simulada. Las pruebas físicas siguen siendo necesarias para validar motores, alimentación, sensores y alcance de comunicación.
-
 ## Funciones previstas para completar el proyecto
 
-- Mostrar la munición restante en un display LCD I2C 16x2.
+- Mostrar la munición restante en un display LCD I2C 16×2.
 - Descontar una unidad por cada disparo válido.
 - Bloquear el disparo cuando el cargador esté vacío o durante una recarga.
 - Implementar la recarga de 30 segundos y restablecer la munición a nueve unidades al completarla.
 - Definir los modos de funcionamiento del mando.
-- Integrar el movimiento de la torreta.
+- Integrar el control de la torreta mediante un segundo joystick analógico y un servomotor SG90.
 - Incorporar un sensor frontal para detectar obstáculos y bloquear el avance cuando corresponda, permitiendo el retroceso.
 - Integrar el control automático de faros mediante un sensor de iluminación.
 - Definir el control manual de los faros y su período de funcionamiento.
