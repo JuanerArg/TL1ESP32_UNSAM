@@ -2,6 +2,37 @@
 
 Acá registramos los cambios relevantes del proyecto y las validaciones realizadas.
 
+## Primera versión (V1) — Rama `dev` — 2026-11-10
+
+### Agregado
+
+- Primera implementación de comunicación inalámbrica entre dos ESP32 mediante ESP-NOW.
+- Configuración de la comunicación en el canal 1, utilizando la dirección de difusión `FF:FF:FF:FF:FF:FF`.
+- Lectura de un botón físico en el mando, conectado al GPIO26 y configurado con `INPUT_PULLUP`.
+- Envío del estado de la bocina desde el mando hacia el tanque, con transmisiones periódicas cada 20 ms.
+- Recepción de los paquetes en el ESP32 del tanque.
+- Control de una bocina conectada al GPIO25 del tanque.
+- Activación de la bocina mientras se mantiene presionado el botón y desactivación al soltarlo.
+- Incorporación de un mecanismo de seguridad que apaga la bocina después de 500 ms sin recibir paquetes.
+
+### Funcionamiento inicial
+
+- El mando lee el estado del botón y transmite la información mediante ESP-NOW.
+- El tanque recibe el estado y activa o desactiva la salida correspondiente.
+- La comunicación funciona directamente entre las dos placas, sin router ni conexión a Internet.
+
+### Alcance de la versión
+
+- Esta versión solamente contempla el control de la bocina.
+- No incluye joystick, motores, disparo, pantallas, sensores ni radar.
+- La estructura inicial de comunicación se utiliza como base para las versiones posteriores.
+
+### Pendiente
+
+- Validar el funcionamiento con el montaje físico definitivo.
+- Comprobar la estabilidad de la comunicación y el apagado de seguridad ante una pérdida de conexión.
+- Incorporar nuevas entradas de control y actuadores.
+
 ## Rama `dev` — 2026-11-08
 
 ### Agregado
